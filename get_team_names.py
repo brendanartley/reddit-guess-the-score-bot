@@ -7,9 +7,7 @@ import os
 Script to get the teams names from the NHL API, and write them to a JSON file.
 """
 
-
 def main():
-
 	# Call NHL API
 	r = requests.get("https://statsapi.web.nhl.com/api/v1/teams")
 	if not r.ok:

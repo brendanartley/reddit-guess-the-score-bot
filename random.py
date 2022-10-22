@@ -22,36 +22,25 @@ reddit = praw.Reddit(
 	password=password
 )
 
-# Get HockeyMod (Game Bot)
-# user = reddit.redditor("HockeyMod")
-user = reddit.redditor("Hopeful_Swordfish382")
-SUBMISSION_LIMIT=10
+# Get most recent posts (submissions)
+user = reddit.redditor("HockeyMod")
+SUBMISSION_LIMIT=100
 for submission in user.submissions.new(limit=SUBMISSION_LIMIT):
-	print(submission.id, submission.title)
+	if submission.subreddit == 'canucks' and submission.title.startswith("Post Game Thread:"):
+		print(submission.id, submission.title)
 
+
+# Get the most recent comments
 user = reddit.redditor("Hopeful_Swordfish382")
 SUBMISSION_LIMIT=5
 for comment in user.comments.new(limit=SUBMISSION_LIMIT):
-	print(comment.id, comment.body[:10], comment.replies)
+	if comment.body.startswith('# Pre-Game'):
+		print(comment.id, comment.body[:10], comment.replies)
 
+# Sometimes all the replies do not show up, .refresh() updates this
 comment = reddit.comment(id="it2ste4")
 comment.refresh()
+
+# Iterate comment replies
 for reply in comment.replies:
 	print(reply.author, reply.body)
-
-SUBMISSION_LIMIT=100
-for sr in reddit.subreddit("canucks").hot(limit=SUBMISSION_LIMIT):
-	print(sr.id, sr.title)
-
-
-post = reddit.submission(id='y8z46n')
-
-# it2ste4 - TESTING GUESS THE SCORE
-
-# 3 = 'Live'
-# 7 = 'Final'
-# 1 = 'Scheduled'
-
-# if __name__ == '__main__':
-# 	main()
-# 	pass

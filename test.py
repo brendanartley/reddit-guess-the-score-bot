@@ -23,19 +23,30 @@ reddit = praw.Reddit(
 )
 
 # Get HockeyMod (Game Bot)
+# user = reddit.redditor("HockeyMod")
 user = reddit.redditor("Hopeful_Swordfish382")
-SUBMISSION_LIMIT=5
+SUBMISSION_LIMIT=10
 for submission in user.submissions.new(limit=SUBMISSION_LIMIT):
 	print(submission.id, submission.title)
 
 user = reddit.redditor("Hopeful_Swordfish382")
 SUBMISSION_LIMIT=5
 for comment in user.comments.new(limit=SUBMISSION_LIMIT):
-	print(comment.id, comment.body)
+	print(comment.id, comment.body[:10], comment.replies)
 
-comment = reddit.comment(id="it4zbcj")
+comment = reddit.comment(id="it2ste4")
+comment.refresh()
 for reply in comment.replies:
-	print(reply.user, reply.body)
+	print(reply.author, reply.body)
+
+SUBMISSION_LIMIT=100
+for sr in reddit.subreddit("canucks").hot(limit=SUBMISSION_LIMIT):
+	print(sr.id, sr.title)
+
+
+post = reddit.submission(id='y8z46n')
+
+# it2ste4 - TESTING GUESS THE SCORE
 
 # 3 = 'Live'
 # 7 = 'Final'

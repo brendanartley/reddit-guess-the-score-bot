@@ -3,20 +3,23 @@ import json
 import praw
 from datetime import datetime, timedelta
 import os
+import sys
 
 """
-Script that performs all GTS tasks. Need to be ran once a day, after the GDTs are posted (10 am PST).
-
-Frequency:
-- Daily
+Script that performs all the guess the score functionality. Needs to be ran ONCE a day AFTER the game day thread has been posted.
 """
 
 def get_reddit_instance():
 	"""
-	Returns a PRAW reddit instance for the application to interact with reddit
+	Generates a PRAW Reddit class to interact with reddit
+
+    Returns
+    ---------
+        reddit (Reddit): PRAW reddit class
+		username (str): username of the bot account
 	"""
 	# Fetch secret tokens
-	with open('./keyconfig.json') as keyconf:
+	with open('./data/keyconfig.json') as keyconf:
 		key_dict = json.loads(keyconf.read())
 	client_id = key_dict['client-id']
 	client_token = key_dict['client-token']
@@ -27,15 +30,24 @@ def get_reddit_instance():
 	reddit = praw.Reddit(
 		client_id=client_id,
 		client_secret=client_token,
-		user_agent="Hopeful_Swordfish382/0.1 by YourUsername",
+		user_agent="{}/0.1 by YourUsername".format(username),
 		username=username,
 		password=password
 	)
-	return reddit
+	return reddit, username
 
 def check_game_today(OUR_TEAM_ID):
 	"""
-	Checks if there is a game today. If yes, returns opponent_id, otherwise False
+	Checks if there is a game today and returns opponent id according to NHL API.
+	If there is no game return False.
+
+	Args
+    ---------
+        OUR_TEAM_ID (str): Our team id
+
+	Returns
+    ---------
+        OPPONENT_ID (str | boolean): returns opponent id as string, or False if there is no game today
 	"""
 	# Checks if our team has a game today
 	r = requests.get("https://statsapi.web.nhl.com/api/v1/schedule?teamId={}".format(OUR_TEAM_ID))
@@ -43,11 +55,11 @@ def check_game_today(OUR_TEAM_ID):
 		r = r.json()
 	else:
 		print("NHL API Error: {}".format(r.status_code))
-		return False, False
+		return False
 	
 	# Check there is a game today
 	if r['totalGames'] == 0:
-		return False, False
+		return False
 	else:
 		if str(r['dates'][0]['games'][0]['teams']['home']['team']['id']) == OUR_TEAM_ID:
 			OPPONENT_ID = r['dates'][0]['games'][0]['teams']['away']['team']['id']
@@ -57,7 +69,15 @@ def check_game_today(OUR_TEAM_ID):
 
 def get_game_thread(reddit):
 	"""
-	Finds the most recent game thread in the subreddit. HockeyMod posts GT at 10am every game day.
+	Finds the most recent game thread in the subreddit. HockeyMod posts game thread at 10am every game day (supposedly).
+	
+	Args
+    ---------
+        reddit (Reddit): PRAW reddit class
+
+	Returns
+    ---------
+        submission_id (str | boolean): returns todays game thread identifier as string
 	"""
 
 	submission_id = None
@@ -69,66 +89,25 @@ def get_game_thread(reddit):
 
 	if submission_id == None:
 		print("-- No Game Thread Found --")
+		sys.exit()
 	else:
 		print("-- Game Thread Found -- id = \'{}\'".format(submission_id))
 
 	return submission_id
 
-def get_guesses(reddit, OUR_TEAM_ID, LAST_GAME_OPPONENT_ID, last_game_start_time):
-	"""
-	Collects all the valid guesses from the GTS comment.
-	"""
-
-	# Get team names
-	with open('./data/team_names.json', 'r') as f:
-		r = json.loads(f.read())
-		our_team_names = set([x.lower() for x in r[OUR_TEAM_ID]])
-		opponent_team_names = set([x.lower() for x in r[LAST_GAME_OPPONENT_ID]])
-
-	# Getting Last GTS comment
-	user = reddit.redditor("Hopeful_Swordfish382")
-	SUBMISSION_LIMIT=50
-	for comment in user.comments.new(limit=SUBMISSION_LIMIT):
-		if comment.subreddit == 'canucks':
-			break
-
-	# comment = reddit.comment(id="it2ste4") # TESTING
-	comment.refresh()
-	guesses = []
-
-	for reply in comment.replies:
-		if reply.edited == True:
-			print("Edited - ", reply.author.name, reply.body)
-			continue
-
-		# Skip if comment happened after puck drop
-		if datetime.fromtimestamp(reply.created_utc) > last_game_start_time:
-			print("After Puckdrop - ", reply.author.name, reply.body)
-			continue
-
-		# Guess preprocessing
-		try:
-			guess = reply.body.strip().split(" ", 1)
-			team = guess[0].lower()
-			score = tuple([int(x) for x in guess[1].replace(" ",'').split("-")])
-			if len(score) != 2:
-				continue
-		except:
-			print("Incorrect Format - ", reply.author.name, reply.body)
-			continue
-		
-		# Add guess to array
-		if team in our_team_names:
-			guesses.append([reply.author.name, score])
-		elif team in opponent_team_names:
-			guesses.append([reply.author.name, score[::-1]])
-		else:
-			print("Wrong Team Format - ", reply.author.name, reply.body)
-	return guesses
-
 def get_last_game_info(OUR_TEAM_ID):
 	"""
 	Gets the start time, and the score of the last game from our team.
+
+	Args
+    ---------
+        OUR_TEAM_ID (str): Our team id
+
+	Returns
+    ---------
+		last_game_start_time (datetime.datetime): time of puck drop in the last game
+		last_game_score (tuple(int, int)): score of last game in the format (ourteam, opponent)
+		LAST_GAME_OPPONENT_ID (str): the team id of our last opponent
 	"""
 	r = requests.get("https://statsapi.web.nhl.com/api/v1/schedule?teamId={}&season=20222023".format(OUR_TEAM_ID))
 	if r.ok:
@@ -170,9 +149,84 @@ def get_last_game_info(OUR_TEAM_ID):
 
 	return last_game_start_time, tuple(last_game_score), str(LAST_GAME_OPPONENT_ID)
 
+def get_guesses(reddit, OUR_TEAM_ID, LAST_GAME_OPPONENT_ID, last_game_start_time, username):
+	"""
+	Collects all the valid guesses from the GTS comment.
+	
+	Args
+    ---------
+        reddit (Reddit): PRAW reddit class
+        OUR_TEAM_ID (str): Our team id
+        LAST_GAME_OPPONENT_ID (str): Opponents team id
+		last_game_start_time (datetime.datetime): time of puck drop in last game
+		username (str): username of the bot account
+
+	Returns
+    ---------
+        guesses (arr[arr[str, tuple(int, int)]]): array of all guesses and their users that are in correct format
+	"""
+
+	# Get team names
+	with open('./data/team_names.json', 'r') as f:
+		r = json.loads(f.read())
+		our_team_names = set([x.lower() for x in r[OUR_TEAM_ID]])
+		opponent_team_names = set([x.lower() for x in r[LAST_GAME_OPPONENT_ID]])
+
+	# Getting Last GTS comment
+	user = reddit.redditor(username)
+	SUBMISSION_LIMIT=50
+	for comment in user.comments.new(limit=SUBMISSION_LIMIT):
+		if comment.subreddit == 'canucks':
+			break
+
+	# comment = reddit.comment(id="it2ste4") # TESTING
+	comment.refresh()
+	guesses = []
+
+	for reply in comment.replies:
+		if reply.edited == True:
+			print("Edited - ", reply.author.name, reply.body)
+			continue
+
+		# Skip if comment happened after puck drop
+		if datetime.fromtimestamp(reply.created_utc) > last_game_start_time:
+			print("After Puckdrop - ", reply.author.name, reply.body)
+			continue
+
+		# Guess preprocessing
+		try:
+			guess = reply.body.strip().split(" ", 1)
+			team = guess[0].lower()
+			score = tuple([int(x) for x in guess[1].replace(" ",'').split("-")])
+			if len(score) != 2:
+				continue
+		except:
+			print("Incorrect Format - ", reply.author.name, reply.body)
+			continue
+		
+		# Add guess to array
+		if team in our_team_names:
+			guesses.append([reply.author.name, score])
+		elif team in opponent_team_names:
+			guesses.append([reply.author.name, score[::-1]])
+		else:
+			print("Wrong Team Format - ", reply.author.name, reply.body)
+	return guesses
+
+
 def update_scoreboard(reddit, guesses, game_score):
 	"""
 	Update GTS scoreboard (locally and on reddit wiki page).
+
+	Args
+    ---------
+        reddit (Reddit): PRAW reddit class
+        guesses (arr[arr[str, tuple(int, int)]]): array of all guesses and their users
+		game_score (tuple(int, int)): score of last game in the format (ourteam, opponent)
+
+	Returns
+    ---------
+        N/A
 	"""
 	# -- Update locally --
 	# Creates File if not there
@@ -205,40 +259,41 @@ def update_scoreboard(reddit, guesses, game_score):
 	reddit.subreddit('prawtestenv').wiki['index'].edit(content=scoreboard, reason="scoreboard_update")
 	print("-- Updated Scoreboard --")
 
-def get_game_start_utc(OUR_TEAM_ID):
+def get_last_gts_winners(guesses, game_score):
 	"""
-	Returns the time when the game started.
-	"""
-	r = requests.get("https://statsapi.web.nhl.com/api/v1/schedule?teamId={}&expand=schedule.linescore&date=2022-10-20".format(OUR_TEAM_ID))
-	if r.ok:
-		r = r.json()
-	else:
-		print("NHL API error - check_game_ended")
-		return False
+	Gets the winners from last games guess the score.
 
-	s = r['dates'][0]['games'][0]['linescore']['periods'][0]['startTime']
-	s = s.replace("T"," ").replace("Z", "")
-	game_start_time = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
-	return game_start_time
-	
+	Args
+    ---------
+        guesses (arr[arr[str, tuple(int, int)]]): array of all guesses and their users
+        game_score (tuple(int, int)): score of last game in the format (ourteam, opponent)
 
-def store_gts_winners(guesses, game_score):
-	"""
-	Store correct guessers from last game in file.
+	Returns
+    ---------
+        winners (arr[str]): array of all the users who had correct guesses
 	"""
 	winners = []
 	for user, guess in guesses:
 		if guess == game_score:
 			winners.append(user)
 
-	with open('./data/previous_gts_winners.json', "w") as f:
-		json.dump({'winners': winners}, f)
-	print("-- Stored Last Game Winners --")
-	return winners
+	print("-- Got Last Game Winners --")
+	return winners	
 
 def get_comment_body(OUR_TEAM_ID, OPPONENT_ID, guesses, winners):
 	"""
 	Given our team id and the opponents id, returns the guess the score body text.
+
+	Args
+    ---------
+		OUR_TEAM_ID (str): our team id
+		OPPONENT_ID (str): opponent team id
+        guesses (arr[arr[str, tuple(int, int)]]): array of all guesses and their users
+		winners (arr[str]): array of all the users who had correct guesses
+
+	Returns
+    ---------
+        body (str): Markdown for the reddit GTS comment
 	"""
 	with open('./data/team_names.json') as f:
 		r = json.loads(f.read())
@@ -273,12 +328,21 @@ Out of {} guesses last game. Congratulations to...\n
 def make_comment(reddit, body, submission_id):
 	"""
 	Makes GTS comment in game thread.
+
+
+	Args
+    ---------
+		reddit (Reddit): PRAW reddit class
+		winners (arr[str]): array of all the users who had correct guesses in last game
+
+	Returns
+    ---------
+        submission_id (str): todays game thread identifier as string
 	"""
 	try:
-		#TODO: add 'sticky=True' into the reply to pin the comment
 		comment = reddit.submission(submission_id).reply(body=body)
 		try:
-			comment.mod.distinguish(sticky=True)
+			comment.mod.distinguish(sticky=True) # only excecutes if account has moderator access
 		except:
 			print("-- Need mod access to sticky comment --")
 		print(" -- GTS Comment Successful -- ")
@@ -289,11 +353,9 @@ def make_comment(reddit, body, submission_id):
 
 def main():
 
-	# Gets today match ids
-	print("-- {} --".format(datetime.today().strftime('%Y-%m-%d %H:%M:%S')))
+	# Get IDs for game today if it exists
 	OUR_TEAM_ID = '23'
 	TODAY_OPPONENT_ID = check_game_today(OUR_TEAM_ID)
-	# TODAY_OPPONENT_ID = '30' # FOR TESTING
 
 	# Stops execution if there is no game today
 	if TODAY_OPPONENT_ID == False:
@@ -302,23 +364,21 @@ def main():
 	else:
 		print("-- Game Day -- OPPONENT_ID=\'{}\'".format(TODAY_OPPONENT_ID))
 
-	# PRAW instance and GT submission id
-	reddit = get_reddit_instance()
+	# Get PRAW instance and id of game thread
+	reddit, username = get_reddit_instance()
 	gt_submission_id = get_game_thread(reddit)
-	# gt_submission_id = "ya2maq" # TESTING
 
-	# Gets guesses from last game
+	# Gets last games guesses
 	last_game_start_time, last_game_score, LAST_GAME_OPPONENT_ID = get_last_game_info(OUR_TEAM_ID)
-	guesses = get_guesses(reddit, OUR_TEAM_ID, LAST_GAME_OPPONENT_ID, last_game_start_time)
+	guesses = get_guesses(reddit, OUR_TEAM_ID, LAST_GAME_OPPONENT_ID, last_game_start_time, username)
 
-	# Update scores
+	# Update scoreboard and get winners from last game
 	update_scoreboard(reddit, guesses, last_game_score)
-	winners = store_gts_winners(guesses, last_game_score)
+	winners = get_last_gts_winners(guesses, last_game_score)
 
-	# Make today's GTS post
+	# Make today's guess the score post
 	body = get_comment_body(OUR_TEAM_ID, TODAY_OPPONENT_ID, guesses, winners)
 	make_comment(reddit, body, gt_submission_id)
 
 if __name__ == '__main__':
 	main()
-	pass

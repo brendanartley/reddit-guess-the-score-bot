@@ -26,7 +26,7 @@ def main():
 	if not os.path.exists(data_path):
 		os.makedirs(data_path)
 
-	# Writing to file
+	# Write team names to file
 	with open('./data/team_names.json', "w") as f:
 		json.dump(team_names, f)
 	

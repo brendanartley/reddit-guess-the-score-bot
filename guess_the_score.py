@@ -370,6 +370,8 @@ def main():
 
 	# Gets last games guesses
 	last_game_start_time, last_game_score, LAST_GAME_OPPONENT_ID = get_last_game_info(OUR_TEAM_ID)
+	#LAST_GAME_OPPONENT_ID = '999' # If you miss a game, you have to enter the team_id manually
+
 	guesses = get_guesses(reddit, OUR_TEAM_ID, LAST_GAME_OPPONENT_ID, last_game_start_time, username)
 
 	# Update scoreboard and get winners from last game
